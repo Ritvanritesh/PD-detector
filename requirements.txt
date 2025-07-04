@@ -9,4 +9,4 @@ joblib
 xgboost
 standard-aifc
 standard-sunau
-parselmouth
+parselmouth>=1.3.0
