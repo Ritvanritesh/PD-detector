@@ -1,158 +1,122 @@
 import streamlit as st
-import librosa
-import numpy as np
 import pandas as pd
-import joblib
-from scipy.stats import entropy
-import warnings
-from io import BytesIO
+import numpy as np
+import pickle
 import os
+import parselmouth
 
-# Set page config
-st.set_page_config(
-    page_title="Parkinson's Voice Analysis",
-    page_icon="🧠",
-    layout="wide"
-)
+# Load trained model
+model_path = "parkinsons_model.pkl"
 
-# Custom CSS
-st.markdown("""
-<style>
-    .reportview-container {
-        background: #f0f2f6;
-    }
-    .sidebar .sidebar-content {
-        background: #ffffff;
-    }
-    .stProgress > div > div > div > div {
-        background-color: #4e79a7;
-    }
-    .st-bb {
-        background-color: #f0f2f6;
-    }
-    .st-at {
-        background-color: #ffffff;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-@st.cache_resource
-def load_model():
-    return joblib.load("models/xgb_clf_new.joblib")
-
-def extract_features(audio_bytes):
-    features = {
-        "MDVP:Fo(Hz)": 0, "MDVP:Fhi(Hz)": 0, "MDVP:Flo(Hz)": 0,
-        "MDVP:Jitter(%)": 0, "MDVP:Jitter(Abs)": 0, "MDVP:RAP": 0,
-        "MDVP:PPQ": 0, "Jitter:DDP": 0, "MDVP:Shimmer": 0,
-        "MDVP:Shimmer(dB)": 0, "Shimmer:APQ3": 0, "Shimmer:APQ5": 0,
-        "MDVP:APQ": 0, "Shimmer:DDA": 0, "NHR": 0, "HNR": 0,
-        "RPDE": 0, "DFA": 0, "spread1": 0, "spread2": 0,
-        "D2": 0, "PPE": 0
-    }
-
+if not os.path.exists(model_path):
+    st.error("❌ Model file not found. Please upload 'parkinsons_model.pkl'.")
+else:
     try:
-        with open("temp_audio.wav", "wb") as f:
-            f.write(audio_bytes.getvalue())
+        model = pickle.load(open(model_path, "rb"))
+        
+        def extract_features(file_path):
+            try:
+                snd = parselmouth.Sound(file_path)
+                
+                # Convert stereo to mono if needed
+                if snd.n_channels != 1:
+                    samples = np.mean(snd.values, axis=0)
+                    snd = parselmouth.Sound(values=samples, sampling_frequency=snd.sampling_frequency)
+                
+                # Extract pitch first
+                pitch = snd.to_pitch()
+                
+                # Create PointProcess from sound directly (not from pitch)
+                point_process = parselmouth.praat.call(snd, "To PointProcess (periodic, cc)", 75, 500)
+                
+                # Fundamental frequency features
+                mean_f0 = parselmouth.praat.call(pitch, "Get mean", 0, 0, "Hertz")
+                max_f0 = parselmouth.praat.call(pitch, "Get maximum", 0, 0, "Hertz")
+                min_f0 = parselmouth.praat.call(pitch, "Get minimum", 0, 0, "Hertz")
+            
+                # Jitter measures
+                jitter_local = parselmouth.praat.call(point_process, "Get jitter (local)", 0, 0, 0.0001, 0.02, 1.3)
+                jitter_rap = parselmouth.praat.call(point_process, "Get jitter (rap)", 0, 0, 0.0001, 0.02, 1.3)
+                jitter_ppq5 = parselmouth.praat.call(point_process, "Get jitter (ppq5)", 0, 0, 0.0001, 0.02, 1.3)
+                
+                # Shimmer measures
+                shimmer_local = parselmouth.praat.call([snd, point_process], "Get shimmer (local)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
+                shimmer_apq3 = parselmouth.praat.call([snd, point_process], "Get shimmer (apq3)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
+                shimmer_apq5 = parselmouth.praat.call([snd, point_process], "Get shimmer (apq5)", 0, 0, 0.0001, 0.02, 1.3, 1.6)
+                
+                # Harmonicity (HNR)
+                harmonicity = parselmouth.praat.call(snd, "To Harmonicity (cc)", 0.01, 75, 0.1, 1.0)
+                hnr_value = parselmouth.praat.call(harmonicity, "Get mean", 0, 0)
+            
+                # Create feature vector
+                features = {
+                    'MDVP:Fo(Hz)': mean_f0,
+                    'MDVP:Fhi(Hz)': max_f0,
+                    'MDVP:Flo(Hz)': min_f0,
+                    'MDVP:Jitter(%)': jitter_local,
+                    'MDVP:Jitter(Abs)': 0,  # Placeholder
+                    'MDVP:RAP': jitter_rap,
+                    'MDVP:PPQ': jitter_ppq5,
+                    'Jitter:DDP': jitter_rap*3,
+                    'MDVP:Shimmer': shimmer_local,
+                    'MDVP:Shimmer(dB)': 0,  # Placeholder
+                    'Shimmer:APQ3': shimmer_apq3,
+                    'Shimmer:APQ5': shimmer_apq5,
+                    'MDVP:APQ': 0,  # Placeholder
+                    'Shimmer:DDA': shimmer_apq3*3,
+                    'NHR': 0,  # Placeholder
+                    'HNR': hnr_value,
+                    'RPDE': 0,  # Not extractable
+                    'DFA': 0,  # Not extractable
+                    'spread1': 0,  # Not extractable
+                    'spread2': 0,  # Not extractable
+                    'D2': 0,  # Not extractable
+                    'PPE': 0  # Not extractable
+                }
+                
+                return pd.DataFrame([features])
+            
+            except Exception as e:
+                st.error(f"⚠️ Feature extraction failed: {str(e)}")
+                return None
 
-        y, sr = librosa.load("temp_audio.wav", sr=22050)
-        pitches, magnitudes = librosa.piptrack(y=y, sr=sr)
-        pitches = pitches[pitches > 0]
+        # Streamlit UI
+        st.title("🧠 Parkinson's Detection from Voice")
+        st.write("Upload a `.wav` file of a person saying 'aaaah' for 3-5 seconds.")
 
-        if len(pitches) < 20:
-            st.warning("Audio too short or lacks pitch content.")
-            return None
+        uploaded_file = st.file_uploader("Upload WAV file", type=["wav"])
 
-        # Pitch
-        features["MDVP:Fo(Hz)"] = np.mean(pitches)
-        features["MDVP:Fhi(Hz)"] = np.max(pitches)
-        features["MDVP:Flo(Hz)"] = np.min(pitches)
+        if uploaded_file:
+            st.audio(uploaded_file, format='audio/wav')
 
-        # Jitter (approximated via zero-crossings)
-        zero_crossings = librosa.zero_crossings(y, pad=False)
-        jitter_std = np.std(zero_crossings)
-        jitter_mean = np.mean(zero_crossings)
-        features['MDVP:Jitter(%)'] = jitter_std / jitter_mean if jitter_mean != 0 else 0
-        features['MDVP:Jitter(Abs)'] = jitter_std
-        features['MDVP:RAP'] = jitter_std / (len(zero_crossings) + 1e-6)
-        features['MDVP:PPQ'] = jitter_std / np.sqrt(len(zero_crossings) + 1e-6)
-        features['Jitter:DDP'] = jitter_std * 3
+            # Save temporary file
+            with open("temp_audio.wav", "wb") as f:
+                f.write(uploaded_file.getbuffer())
 
-        # Shimmer (approximated from amplitude)
-        amplitude = librosa.amplitude_to_db(np.abs(y), ref=np.max)
-        shimmer_std = np.std(amplitude)
-        shimmer_mean = np.mean(amplitude)
-        features['MDVP:Shimmer'] = shimmer_std / shimmer_mean if shimmer_mean != 0 else 0
-        features['MDVP:Shimmer(dB)'] = shimmer_std
-        features['Shimmer:APQ3'] = shimmer_std / 3
-        features['Shimmer:APQ5'] = shimmer_std / 5
-        features['MDVP:APQ'] = shimmer_std / len(amplitude)
-        features['Shimmer:DDA'] = shimmer_std * 3
+            features = extract_features("temp_audio.wav")
 
-        # Harmonics (rough)
-        harmonic, percussive = librosa.effects.hpss(y)
-        features['NHR'] = np.mean(percussive) / (np.mean(harmonic) + 1e-6)
-        features['HNR'] = np.mean(harmonic) / (np.mean(percussive) + 1e-6)
-
-        # Nonlinear features
-        features['RPDE'] = entropy(pitches)
-        features['DFA'] = librosa.feature.rms(y=y).mean()
-        features['spread1'] = np.std(pitches)
-        features['spread2'] = np.var(pitches)
-        features['D2'] = np.percentile(pitches, 99)
-        features['PPE'] = np.mean(np.abs(pitches - np.mean(pitches)))
-
-        return features
-
-    except Exception as e:
-        st.error(f"Feature extraction failed: {str(e)}")
-        return None
-    finally:
-        try:
-            os.remove("temp_audio.wav")
-        except:
-            pass
-
-def main():
-    st.title("🧠 Parkinson's Disease Voice Analysis")
-    st.markdown("""
-    Upload a short recording of you saying "ahhh" for 3–5 seconds.
-    We'll analyze it for vocal biomarkers of Parkinson's Disease.
-    """)
-
-    with st.sidebar:
-        st.header("Instructions")
-        st.markdown("""
-        1. Record "ahhh" for 3–5 seconds
-        2. Save as WAV (16-bit PCM recommended)
-        3. Upload using the uploader below
-        """)
-
-    uploaded_file = st.file_uploader("Upload WAV Audio File", type=["wav"])
-
-    if uploaded_file:
-        st.audio(uploaded_file, format="audio/wav")
-
-        if st.button("Analyze Voice"):
-            with st.spinner("Extracting features and predicting..."):
-                features = extract_features(uploaded_file)
-
-                if features:
-                    df = pd.DataFrame([features])
-                    model = load_model()
-                    prediction = model.predict(df)[0]
-                    proba = model.predict_proba(df)[0][1]
-
+            if features is not None:
+                # Make prediction
+                try:
+                    prediction = model.predict(features)
+                    prediction_proba = model.predict_proba(features)
+                    
+                    # Display results
                     st.subheader("Results")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Prediction", "🧠 Parkinson's Detected" if prediction else "✅ Healthy", f"{proba*100:.1f}% Confidence")
-                    with col2:
-                        risk = "High" if proba > 0.7 else "Medium" if proba > 0.5 else "Low"
-                        st.metric("Risk Level", risk)
-
-                    with st.expander("Feature Breakdown"):
-                        st.dataframe(df.T.style.background_gradient(cmap="Blues"))
-
-if __name__ == "__main__":
-    main()
+                    if prediction[0] == 1:
+                        st.error(f"🧠 Parkinson's Detected! (Probability: {prediction_proba[0][1]:.2%})")
+                    else:
+                        st.success(f"✅ Healthy! (Probability: {prediction_proba[0][0]:.2%})")
+                    
+                    st.write("### Extracted Features")
+                    st.dataframe(features)
+                    
+                except Exception as e:
+                    st.error(f"❌ Prediction failed: {str(e)}")
+                    
+            # Clean up temporary file
+            if os.path.exists("temp_audio.wav"):
+                os.remove("temp_audio.wav")
+                
+    except Exception as e:
+        st.error(f"❌ Error loading model: {str(e)}")
