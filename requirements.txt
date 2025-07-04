@@ -9,4 +9,4 @@ joblib==1.5.1
 xgboost==2.1.4
 parselmouth==1.1.1
 opensmile==2.4.1
-python-soundfile==0.13.1
+soundfile==0.12.1  # Corrected package name and version
