@@ -2,7 +2,7 @@ import streamlit as st
 import librosa
 import numpy as np
 # import parselmouth
-import opensmile
+# import opensmile
 import pandas as pd
 from scipy.stats import entropy
 import joblib
