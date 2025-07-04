@@ -7,6 +7,3 @@ sounddevice==0.4.6
 scikit-learn==1.3.2
 joblib==1.3.2
 xgboost==1.7.6
-parselmouth==0.4.2
-opensmile==2.4.1
-soundfile==0.12.1
