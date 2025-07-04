@@ -1,7 +1,7 @@
 import streamlit as st
 import librosa
 import numpy as np
-import parselmouth
+# import parselmouth
 import opensmile
 import pandas as pd
 from scipy.stats import entropy
