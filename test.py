@@ -8,6 +8,11 @@ from scipy.stats import entropy
 import joblib
 import warnings
 from io import BytesIO
+import os
+os.environ["PARSE_MOUTH_NO_GOOGLE"] = "1"  # Disable problematic dependency
+os.environ["NO_SOUNDFILE_WARNING"] = "1"   # Disable soundfile warnings
+
+# Rest of your app code...
 
 # Set page config
 st.set_page_config(
