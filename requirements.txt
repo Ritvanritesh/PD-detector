@@ -1,0 +1,11 @@
+streamlit
+librosa
+numpy
+pandas
+scipy
+sounddevice
+scikit-learn
+joblib
+xgboost
+standard-aifc
+standard-sunau
