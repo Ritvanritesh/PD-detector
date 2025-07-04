@@ -100,7 +100,7 @@ def extract_features(audio_bytes):
         return features
 
     except Exception as e:
-        st.error(f"Feature extraction failed: {str(e)}")
+        st.error("Feature extraction failed. Please make sure the audio is valid and clear.")
         return None
     finally:
         try:
@@ -134,20 +134,23 @@ def main():
 
                 if features:
                     df = pd.DataFrame([features])
-                    model = load_model()
-                    prediction = model.predict(df)[0]
-                    proba = model.predict_proba(df)[0][1]
+                    try:
+                        model = load_model()
+                        prediction = model.predict(df)[0]
+                        proba = model.predict_proba(df)[0][1]
 
-                    st.subheader("Results")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("Prediction", "🧠 Parkinson's Detected" if prediction else "✅ Healthy", f"{proba*100:.1f}% Confidence")
-                    with col2:
-                        risk = "High" if proba > 0.7 else "Medium" if proba > 0.5 else "Low"
-                        st.metric("Risk Level", risk)
+                        st.subheader("Results")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Prediction", "🧠 Parkinson's Detected" if prediction else "✅ Healthy", f"{proba*100:.1f}% Confidence")
+                        with col2:
+                            risk = "High" if proba > 0.7 else "Medium" if proba > 0.5 else "Low"
+                            st.metric("Risk Level", risk)
 
-                    with st.expander("Feature Breakdown"):
-                        st.dataframe(df.T.style.background_gradient(cmap="Blues"))
+                        with st.expander("Feature Breakdown"):
+                            st.dataframe(df.T.style.background_gradient(cmap="Blues"))
+                    except Exception as e:
+                        st.error("Prediction failed. Please check the model file or feature compatibility.")
 
 if __name__ == "__main__":
     main()
